@@ -1,4 +1,3 @@
-```bash
 #!/usr/bin/env bash
 set -e
 
@@ -22,6 +21,8 @@ done
 if [ -z "$domain" ]; then
   read -p "Enter domain name: " domain
 fi
+
+echo "Deploying domain: $domain"
 
 # -----------------------------
 # Install packages
@@ -74,6 +75,7 @@ mkdir -p "$webroot"
 
 if [ ! -f "$webroot/index.html" ]; then
 cat > "$webroot/index.html" <<EOF
+<!DOCTYPE html>
 <html>
 <head>
 <title>$domain</title>
@@ -97,7 +99,7 @@ if $use_www; then
 fi
 
 # -----------------------------
-# NGINX config
+# NGINX CONFIG
 # -----------------------------
 cat > "$nginx_available" <<EOF
 server {
@@ -110,49 +112,44 @@ server {
     root $webroot;
     index index.html;
 
-    # Security headers
-    add_header X-Frame-Options SAMEORIGIN;
-    add_header X-Content-Type-Options nosniff;
-
     # gzip
     gzip on;
-    gzip_types text/plain text/css application/json application/javascript text/xml application/xml text/javascript;
+    gzip_types text/plain text/css application/javascript application/json;
 
-    # HTML
-    location ~* \\.html$ {
-        expires -1;
+    # index.html (no cache)
+    location = /index.html {
         add_header Cache-Control "no-store, no-cache, must-revalidate";
     }
 
-    # JS CSS
-    location ~* \\.(js|css)$ {
+    # JS / CSS
+    location ~* \.(js|css)$ {
         expires 7d;
         add_header Cache-Control "public, immutable";
     }
 
     # Images
-    location ~* \\.(jpg|jpeg|png|gif|ico|svg|webp|avif)$ {
+    location ~* \.(jpg|jpeg|png|gif|ico|svg|webp|avif)$ {
         expires 30d;
         add_header Cache-Control "public";
     }
 
     # Video
-    location ~* \\.(mp4|webm|ogg|mov|avi|mkv)$ {
+    location ~* \.(mp4|webm|ogg|mov|avi|mkv)$ {
         expires 30d;
         add_header Cache-Control "public";
         add_header Accept-Ranges bytes;
     }
 
-    # React SPA
+    # React SPA routing
     location / {
-        try_files \$uri \$uri/ /index.html;
+        try_files \$uri /index.html;
     }
 
 }
 EOF
 
 # -----------------------------
-# Enable site (Debian only)
+# Enable site (Debian)
 # -----------------------------
 if [ "$nginx_mode" = "debian" ]; then
 
@@ -173,7 +170,7 @@ nginx -t
 nginx -s reload
 
 # -----------------------------
-# SSL certificate
+# SSL
 # -----------------------------
 echo "Requesting SSL certificate..."
 
@@ -183,17 +180,18 @@ certbot --nginx $cert_domains \
 -m admin@$domain || true
 
 # -----------------------------
-# Cron renewal
+# SSL Renewal
 # -----------------------------
 (crontab -l 2>/dev/null | grep -v certbot; \
 echo "0 3 * * * certbot renew --quiet --deploy-hook 'nginx -s reload'") | crontab -
 
 echo ""
-echo "----------------------------------"
-echo "Deployment completed"
-echo "Domain: https://$domain"
+echo "--------------------------------"
+echo "Deployment complete"
+echo "https://$domain"
+
 if $use_www; then
-echo "Domain: https://www.$domain"
+echo "https://www.$domain"
 fi
-echo "----------------------------------"
-```
+
+echo "--------------------------------"
