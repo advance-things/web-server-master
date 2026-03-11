@@ -1,5 +1,5 @@
+```bash
 #!/usr/bin/env bash
-
 set -e
 
 domain=""
@@ -23,15 +23,10 @@ if [ -z "$domain" ]; then
   read -p "Enter domain name: " domain
 fi
 
-webroot="/var/www/$domain"
-nginx_available="/etc/nginx/conf.d/$domain.conf"
-
-echo "Deploying: $domain"
-
 # -----------------------------
 # Install packages
 # -----------------------------
-install_pkgs() {
+install_pkgs () {
 
 if command -v apt-get >/dev/null 2>&1; then
   apt-get update
@@ -42,6 +37,9 @@ elif command -v dnf >/dev/null 2>&1; then
 
 elif command -v yum >/dev/null 2>&1; then
   yum install -y nginx certbot python3-certbot-nginx cronie
+
+elif command -v apk >/dev/null 2>&1; then
+  apk add nginx certbot certbot-nginx
 fi
 
 }
@@ -49,7 +47,28 @@ fi
 install_pkgs
 
 # -----------------------------
-# Create web root
+# Detect nginx layout
+# -----------------------------
+if [ -d "/etc/nginx/sites-available" ]; then
+
+    nginx_available="/etc/nginx/sites-available/$domain.conf"
+    nginx_enabled="/etc/nginx/sites-enabled/$domain.conf"
+    nginx_mode="debian"
+
+elif [ -d "/etc/nginx/conf.d" ]; then
+
+    nginx_available="/etc/nginx/conf.d/$domain.conf"
+    nginx_mode="confd"
+
+else
+    echo "Unsupported nginx layout"
+    exit 1
+fi
+
+webroot="/var/www/$domain"
+
+# -----------------------------
+# Create webroot
 # -----------------------------
 mkdir -p "$webroot"
 
@@ -78,7 +97,7 @@ if $use_www; then
 fi
 
 # -----------------------------
-# NGINX CONFIG
+# NGINX config
 # -----------------------------
 cat > "$nginx_available" <<EOF
 server {
@@ -91,55 +110,40 @@ server {
     root $webroot;
     index index.html;
 
-    # -----------------
     # Security headers
-    # -----------------
     add_header X-Frame-Options SAMEORIGIN;
     add_header X-Content-Type-Options nosniff;
-    add_header X-XSS-Protection "1; mode=block";
 
-    # -----------------
-    # Gzip
-    # -----------------
+    # gzip
     gzip on;
     gzip_types text/plain text/css application/json application/javascript text/xml application/xml text/javascript;
 
-    # -----------------
-    # HTML (no cache)
-    # -----------------
-    location ~* \.html$ {
+    # HTML
+    location ~* \\.html$ {
         expires -1;
         add_header Cache-Control "no-store, no-cache, must-revalidate";
     }
 
-    # -----------------
-    # JS / CSS
-    # -----------------
-    location ~* \.(js|css)$ {
+    # JS CSS
+    location ~* \\.(js|css)$ {
         expires 7d;
         add_header Cache-Control "public, immutable";
     }
 
-    # -----------------
     # Images
-    # -----------------
-    location ~* \.(jpg|jpeg|png|gif|ico|svg|webp|avif)$ {
+    location ~* \\.(jpg|jpeg|png|gif|ico|svg|webp|avif)$ {
         expires 30d;
         add_header Cache-Control "public";
     }
 
-    # -----------------
     # Video
-    # -----------------
-    location ~* \.(mp4|webm|ogg|mov|avi|mkv)$ {
+    location ~* \\.(mp4|webm|ogg|mov|avi|mkv)$ {
         expires 30d;
         add_header Cache-Control "public";
         add_header Accept-Ranges bytes;
     }
 
-    # -----------------
-    # React SPA fallback
-    # -----------------
+    # React SPA
     location / {
         try_files \$uri \$uri/ /index.html;
     }
@@ -148,28 +152,48 @@ server {
 EOF
 
 # -----------------------------
-# Test and reload nginx
+# Enable site (Debian only)
+# -----------------------------
+if [ "$nginx_mode" = "debian" ]; then
+
+  if [ ! -f "$nginx_enabled" ]; then
+    ln -s "$nginx_available" "$nginx_enabled"
+  fi
+
+  if [ -f "/etc/nginx/sites-enabled/default" ]; then
+    rm -f /etc/nginx/sites-enabled/default
+  fi
+
+fi
+
+# -----------------------------
+# Reload nginx
 # -----------------------------
 nginx -t
 nginx -s reload
 
 # -----------------------------
-# Request SSL
+# SSL certificate
 # -----------------------------
-echo "Requesting SSL..."
+echo "Requesting SSL certificate..."
 
-certbot --nginx $cert_domains --non-interactive --agree-tos -m admin@$domain || true
+certbot --nginx $cert_domains \
+--non-interactive \
+--agree-tos \
+-m admin@$domain || true
 
 # -----------------------------
-# Cron for renewal
+# Cron renewal
 # -----------------------------
-(crontab -l 2>/dev/null | grep -v certbot; echo "0 3 * * * certbot renew --quiet --deploy-hook 'nginx -s reload'") | crontab -
+(crontab -l 2>/dev/null | grep -v certbot; \
+echo "0 3 * * * certbot renew --quiet --deploy-hook 'nginx -s reload'") | crontab -
 
 echo ""
 echo "----------------------------------"
 echo "Deployment completed"
-echo "https://$domain"
+echo "Domain: https://$domain"
 if $use_www; then
-  echo "https://www.$domain"
+echo "Domain: https://www.$domain"
 fi
 echo "----------------------------------"
+```
